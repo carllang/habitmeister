@@ -1,32 +1,39 @@
 import React from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 
 import {useEffect, useState} from 'react';
 
 import {
+  ActionColor,
   Habit,
+  clearLocalHabitData,
   getDateKey,
-  getHabitStreak,
   initialHabits,
   isValidReminderTime,
   isHabitComplete,
+  TimeOfDay,
   WEEKDAYS,
   loadHabits,
   loadOnboardingCompleted,
+  loadRemindersEnabled,
+  loadThemeMode,
+  loadActionColor,
   saveOnboardingCompleted,
   saveHabits,
+  saveRemindersEnabled,
+  saveThemeMode,
+  saveActionColor,
+  toggleHabitCompletionOnDate,
+  ThemeMode,
 } from './src/data/habitRepository';
 import {
   configureRevenueCat,
@@ -39,21 +46,45 @@ import {
   initialiseReminderNotifications,
   rescheduleReminders,
 } from './src/notifications/reminderService';
-import {TimePickerField} from './src/TimePickerField';
+import {ErrorBoundary} from './src/components/ErrorBoundary';
+import {HabitActionsModal} from './src/components/HabitActionsModal';
+import {DeleteHabitModal} from './src/components/DeleteHabitModal';
+import {HabitFormModal} from './src/components/HabitFormModal';
+import {HistoryCalendar} from './src/components/HistoryCalendar';
+import {ManageHabitsScreen} from './src/components/ManageHabitsScreen';
+import {SettingsPanel} from './src/components/SettingsPanel';
+import {StatsScreen} from './src/components/StatsScreen';
+import {HabitList} from './src/components/TodayHabitList';
 
-type Tab = 'Today' | 'History' | 'Settings' | 'Premium';
+type Tab = 'Home' | 'Manage' | 'Stats' | 'Settings';
 
-function App(): React.JSX.Element {
+function AppContent(): React.JSX.Element {
   const [habits, setHabits] = useState(initialHabits);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [newHabitName, setNewHabitName] = useState('');
   const [newHabitDetail, setNewHabitDetail] = useState('');
   const [newHabitReminder, setNewHabitReminder] = useState('');
   const [newHabitRepeatDays, setNewHabitRepeatDays] = useState([...WEEKDAYS]);
+  const [newHabitColor, setNewHabitColor] = useState('#286B69');
+  const [newHabitTimeOfDay, setNewHabitTimeOfDay] = useState<
+    TimeOfDay | undefined
+  >();
+  const [newHabitLocation, setNewHabitLocation] = useState('');
+  const [newHabitDuration, setNewHabitDuration] = useState('');
   const [isHydrated, setIsHydrated] = useState(false);
   const [isOnboardingHydrated, setIsOnboardingHydrated] = useState(false);
+  const [remindersEnabled, setRemindersEnabled] = useState(true);
+  const [themeMode, setThemeMode] = useState<ThemeMode>('light');
+  const [actionColor, setActionColor] = useState<ActionColor>('#286B69');
+  const [actionHabit, setActionHabit] = useState<Habit | null>(null);
+  const [deleteHabitCandidate, setDeleteHabitCandidate] =
+    useState<Habit | null>(null);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>('Today');
+  const [activeTab, setActiveTab] = useState<Tab>('Home');
+  const [historyDate, setHistoryDate] = useState(() => new Date());
+  const [selectedStatsHabitId, setSelectedStatsHabitId] = useState<
+    number | null
+  >(null);
   const [editingHabitId, setEditingHabitId] = useState<number | null>(null);
   const [isPremium, setIsPremium] = useState(false);
   const [isPremiumModalVisible, setIsPremiumModalVisible] = useState(false);
@@ -72,16 +103,33 @@ function App(): React.JSX.Element {
     isHabitComplete(habit, today),
   ).length;
   const progress = habits.length === 0 ? 0 : completedCount / habits.length;
+  const pageBackground = themeMode === 'dark' ? '#090B0B' : colors.paper;
+  const isDarkTheme = themeMode === 'dark';
 
   useEffect(() => {
     let isMounted = true;
-    Promise.all([loadHabits(), loadOnboardingCompleted()]).then(
-      ([savedHabits, onboardingCompleted]) => {
+    Promise.all([
+      loadHabits(),
+      loadOnboardingCompleted(),
+      loadRemindersEnabled(),
+      loadThemeMode(),
+      loadActionColor(),
+    ]).then(
+      ([
+        savedHabits,
+        onboardingCompleted,
+        savedRemindersEnabled,
+        savedThemeMode,
+        savedActionColor,
+      ]) => {
         if (!isMounted) {
           return;
         }
         setHabits(savedHabits);
         setHasCompletedOnboarding(onboardingCompleted);
+        setRemindersEnabled(savedRemindersEnabled);
+        setThemeMode(savedThemeMode);
+        setActionColor(savedActionColor);
         setIsHydrated(true);
         setIsOnboardingHydrated(true);
       },
@@ -114,6 +162,46 @@ function App(): React.JSX.Element {
   const completeOnboarding = () => {
     setHasCompletedOnboarding(true);
     saveOnboardingCompleted();
+    openAddHabit();
+  };
+
+  const selectMainTab = (tab: Tab) => {
+    if (tab !== 'Stats') {
+      setSelectedStatsHabitId(null);
+    }
+    setActiveTab(tab);
+  };
+
+  const deleteLocalData = async () => {
+    await Promise.all(habits.map(habit => cancelReminder(habit.id)));
+    await clearLocalHabitData();
+    setHabits([]);
+    setHasCompletedOnboarding(false);
+    selectMainTab('Home');
+    setHistoryDate(new Date());
+    setSelectedStatsHabitId(null);
+    setEditingHabitId(null);
+    setIsAddModalVisible(false);
+  };
+
+  const changeRemindersEnabled = (enabled: boolean) => {
+    setRemindersEnabled(enabled);
+    saveRemindersEnabled(enabled);
+    if (!enabled) {
+      Promise.all(habits.map(habit => cancelReminder(habit.id))).catch(
+        () => undefined,
+      );
+    }
+  };
+
+  const changeThemeMode = (mode: ThemeMode) => {
+    setThemeMode(mode);
+    saveThemeMode(mode);
+  };
+
+  const changeActionColor = (color: ActionColor) => {
+    setActionColor(color);
+    saveActionColor(color);
   };
 
   useEffect(() => {
@@ -123,7 +211,11 @@ function App(): React.JSX.Element {
   }, [habits, isHydrated]);
 
   useEffect(() => {
-    if (!isHydrated || !habits.some(habit => habit.reminderTime)) {
+    if (
+      !isHydrated ||
+      !remindersEnabled ||
+      !habits.some(habit => habit.reminderTime)
+    ) {
       return;
     }
 
@@ -138,11 +230,11 @@ function App(): React.JSX.Element {
     return () => {
       isMounted = false;
     };
-  }, [habits, isHydrated]);
+  }, [habits, isHydrated, remindersEnabled]);
 
   const openAddHabit = () => {
     if (!isPremium && habits.length >= 5) {
-      setActiveTab('Premium');
+      selectMainTab('Settings');
       Alert.alert(
         'Free plan limit',
         'Upgrade to add more than 5 active habits.',
@@ -153,6 +245,10 @@ function App(): React.JSX.Element {
     setNewHabitDetail('');
     setNewHabitReminder('');
     setNewHabitRepeatDays([...WEEKDAYS]);
+    setNewHabitColor('#286B69');
+    setNewHabitTimeOfDay(undefined);
+    setNewHabitLocation('');
+    setNewHabitDuration('');
     setIsAddModalVisible(true);
   };
 
@@ -209,12 +305,41 @@ function App(): React.JSX.Element {
   const addHabit = () => {
     const name = newHabitName.trim();
     const reminderTime = newHabitReminder.trim();
+    const durationText = newHabitDuration.trim();
+    const durationMinutes = durationText ? Number(durationText) : undefined;
     if (!name) {
       Alert.alert('Name your habit', 'Add a name before saving this habit.');
       return;
     }
+    if (name.length > 100) {
+      Alert.alert('Name is too long', 'Keep habit names under 100 characters.');
+      return;
+    }
+    if (
+      habits.some(
+        habit =>
+          habit.id !== editingHabitId &&
+          habit.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase(),
+      )
+    ) {
+      Alert.alert('Habit already exists', 'Choose a different habit name.');
+      return;
+    }
     if (reminderTime && !isValidReminderTime(reminderTime)) {
       Alert.alert('Check the reminder', 'Use a 24-hour time such as 08:00.');
+      return;
+    }
+    if (
+      durationText &&
+      (!Number.isInteger(durationMinutes) ||
+        durationMinutes === undefined ||
+        durationMinutes < 1 ||
+        durationMinutes > 1440)
+    ) {
+      Alert.alert(
+        'Check the duration',
+        'Enter a whole number of minutes between 1 and 1440.',
+      );
       return;
     }
     if (newHabitRepeatDays.length === 0) {
@@ -236,6 +361,10 @@ function App(): React.JSX.Element {
                 detail,
                 reminderTime: savedReminderTime,
                 repeatDays: newHabitRepeatDays,
+                color: newHabitColor,
+                timeOfDay: newHabitTimeOfDay,
+                location: newHabitLocation.trim() || undefined,
+                durationMinutes,
               }
             : habit,
         );
@@ -247,7 +376,10 @@ function App(): React.JSX.Element {
           name,
           detail,
           completed: false,
-          color: '#286B69',
+          color: newHabitColor,
+          timeOfDay: newHabitTimeOfDay,
+          location: newHabitLocation.trim() || undefined,
+          durationMinutes,
           completedDates: [],
           repeatDays: newHabitRepeatDays,
           reminderTime: savedReminderTime,
@@ -264,58 +396,52 @@ function App(): React.JSX.Element {
     setNewHabitDetail(habit.detail);
     setNewHabitReminder(habit.reminderTime ?? '');
     setNewHabitRepeatDays(habit.repeatDays);
+    setNewHabitColor(habit.color);
+    setNewHabitTimeOfDay(habit.timeOfDay);
+    setNewHabitLocation(habit.location ?? '');
+    setNewHabitDuration(habit.durationMinutes?.toString() ?? '');
     setIsAddModalVisible(true);
   };
 
   const removeHabit = (habit: Habit) => {
-    Alert.alert('Delete habit?', `Remove ${habit.name} from your routine?`, [
-      {text: 'Cancel', style: 'cancel'},
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          cancelReminder(habit.id);
-          setHabits(current => current.filter(item => item.id !== habit.id));
-        },
-      },
-    ]);
+    setDeleteHabitCandidate(habit);
+  };
+
+  const confirmDeleteHabit = () => {
+    if (!deleteHabitCandidate) {
+      return;
+    }
+
+    const habit = deleteHabitCandidate;
+    setDeleteHabitCandidate(null);
+    cancelReminder(habit.id);
+    setHabits(current => current.filter(item => item.id !== habit.id));
   };
 
   const showHabitActions = (habit: Habit) => {
-    Alert.alert(habit.name, undefined, [
-      {text: 'Edit', onPress: () => editHabit(habit)},
-      {text: 'Delete', style: 'destructive', onPress: () => removeHabit(habit)},
-      {text: 'Cancel', style: 'cancel'},
-    ]);
+    setActionHabit(habit);
   };
 
-  const toggleHabit = (habit: Habit) => {
-    const todayKey = getDateKey(today);
+  const toggleHabitOnDate = (habit: Habit, selectedDate: Date) => {
+    if (getDateKey(selectedDate) > getDateKey(today)) {
+      return;
+    }
+
     setHabits(current =>
       current.map(item => {
         if (item.id !== habit.id) {
           return item;
         }
 
-        const completed = isHabitComplete(item, today);
-        const completedDates = completed
-          ? item.completedDates.filter(date => date !== todayKey)
-          : [...item.completedDates, todayKey];
-
-        return {...item, completed: !completed, completedDates};
+        return toggleHabitCompletionOnDate(item, selectedDate);
       }),
     );
   };
 
-  const historyDays = Array.from({length: 7}, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - index);
-    return date;
-  });
-
   if (!isOnboardingHydrated) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView
+        style={[styles.safeArea, {backgroundColor: pageBackground}]}>
         <View style={styles.onboardingLoading}>
           <Text style={styles.eyebrow}>HABITMEISTER</Text>
         </View>
@@ -325,17 +451,37 @@ function App(): React.JSX.Element {
 
   if (!hasCompletedOnboarding) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor={colors.paper} />
+      <SafeAreaView
+        style={[styles.safeArea, {backgroundColor: pageBackground}]}>
+        <StatusBar
+          barStyle={themeMode === 'dark' ? 'light-content' : 'dark-content'}
+          backgroundColor={pageBackground}
+        />
         <View style={styles.onboarding}>
-          <Text style={styles.eyebrow}>A QUIET PLACE TO BEGIN</Text>
-          <Text style={styles.onboardingTitle}>Build a rhythm that lasts.</Text>
-          <Text style={styles.onboardingCopy}>
+          <Text style={[styles.eyebrow, {color: actionColor}]}>
+            A QUIET PLACE TO BEGIN
+          </Text>
+          <Text
+            style={[
+              styles.onboardingTitle,
+              themeMode === 'dark' && styles.darkOnboardingText,
+            ]}>
+            Build a rhythm that lasts.
+          </Text>
+          <Text
+            style={[
+              styles.onboardingCopy,
+              themeMode === 'dark' && styles.darkOnboardingMutedText,
+            ]}>
             Keep a few meaningful habits close, mark each small win, and let
             consistency compound.
           </Text>
           <View style={styles.onboardingRule} />
-          <Text style={styles.onboardingNote}>
+          <Text
+            style={[
+              styles.onboardingNote,
+              themeMode === 'dark' && styles.darkOnboardingMutedText,
+            ]}>
             Your habits are stored locally and work offline.
           </Text>
           <Pressable
@@ -343,6 +489,7 @@ function App(): React.JSX.Element {
             onPress={completeOnboarding}
             style={({pressed}) => [
               styles.saveButton,
+              {backgroundColor: actionColor},
               pressed && styles.buttonPressed,
             ]}>
             <Text style={styles.saveButtonText}>Begin with my habits</Text>
@@ -353,347 +500,204 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.paper} />
+    <SafeAreaView style={[styles.safeArea, {backgroundColor: pageBackground}]}>
+      <StatusBar
+        barStyle={themeMode === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={pageBackground}
+      />
       <View style={styles.container}>
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.eyebrow}>{dateLabel}</Text>
-            <Text style={styles.title}>Good morning, Carl</Text>
-          </View>
-          <Pressable accessibilityLabel="Open profile" style={styles.avatar}>
-            <Text style={styles.avatarText}>C</Text>
-          </Pressable>
-        </View>
-
-        {activeTab === 'Today' ? (
-          <View style={styles.progressPanel}>
-            <View style={styles.progressHeader}>
-              <View>
-                <Text style={styles.panelLabel}>TODAY'S RHYTHM</Text>
-                <Text style={styles.progressTitle}>
-                  {completedCount} of {habits.length} complete
-                </Text>
-              </View>
-              <Text style={styles.progressPercent}>
-                {Math.round(progress * 100)}%
+        {activeTab === 'Home' && (
+          <View style={styles.header}>
+            <View>
+              <Text style={[styles.eyebrow, {color: actionColor}]}>
+                {dateLabel}
+              </Text>
+              <Text style={[styles.title, isDarkTheme && styles.darkTitle]}>
+                Good morning, Carl
               </Text>
             </View>
-            <View style={styles.progressTrack}>
-              <View
-                style={[styles.progressFill, {width: `${progress * 100}%`}]}
-              />
-            </View>
-            <Text style={styles.progressHint}>
-              Small steps, repeated with care.
-            </Text>
-          </View>
-        ) : activeTab === 'History' ? (
-          <View style={styles.historyPanel}>
-            <Text style={styles.panelLabel}>LAST 7 DAYS</Text>
-            <Text style={styles.historyTitle}>
-              Your consistency, at a glance
-            </Text>
-            <View style={styles.historyGrid}>
-              {historyDays.map(date => {
-                const dayKey = getDateKey(date);
-                const completed = habits.filter(habit =>
-                  isHabitComplete(habit, date),
-                ).length;
-                return (
-                  <View key={dayKey} style={styles.historyDay}>
-                    <Text style={styles.historyDayName}>
-                      {date.toLocaleDateString(undefined, {weekday: 'short'})}
-                    </Text>
-                    <View
-                      style={[
-                        styles.historyDot,
-                        completed > 0 && styles.historyDotComplete,
-                      ]}
-                    />
-                    <Text style={styles.historyDayCount}>
-                      {completed}/{habits.length}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        ) : activeTab === 'Settings' ? (
-          <View style={styles.settingsPanel}>
-            <Text style={styles.panelLabel}>PREFERENCES</Text>
-            <Text style={styles.historyTitle}>Make the routine yours</Text>
-            <View style={styles.settingRow}>
-              <View>
-                <Text style={styles.settingTitle}>Active habits</Text>
-                <Text style={styles.settingDetail}>
-                  Keep your daily list focused.
-                </Text>
-              </View>
-              <Text style={styles.settingValue}>{habits.length} / 5</Text>
-            </View>
-            <View style={styles.settingRow}>
-              <View>
-                <Text style={styles.settingTitle}>Storage</Text>
-                <Text style={styles.settingDetail}>
-                  Your habits stay on this device.
-                </Text>
-              </View>
-              <Text style={styles.settingValue}>Offline</Text>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.premiumPanel}>
-            <Text style={[styles.panelLabel, styles.premiumPanelLabel]}>
-              HABITMEISTER PREMIUM
-            </Text>
-            <Text style={styles.historyTitle}>
-              More room for the life you are building.
-            </Text>
-            <Text style={styles.premiumCopy}>
-              Unlock unlimited habits, deeper insights, and data export while
-              keeping the daily habit loop free for everyone.
-            </Text>
             <Pressable
-              accessibilityRole="button"
-              onPress={openPremium}
-              style={({pressed}) => [
-                styles.saveButton,
-                pressed && styles.buttonPressed,
-              ]}>
-              <Text style={styles.saveButtonText}>
-                {isPremium ? 'Premium active' : 'Explore Premium'}
-              </Text>
+              accessibilityLabel="Open profile"
+              style={[styles.avatar, {backgroundColor: `${actionColor}22`}]}>
+              <Text style={[styles.avatarText, {color: actionColor}]}>C</Text>
             </Pressable>
           </View>
         )}
 
-        {activeTab === 'Today' && (
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Your habits</Text>
-            <Text style={styles.sectionCount}>{habits.length} active</Text>
-          </View>
-        )}
-
-        {activeTab === 'Today' && (
-          <View style={styles.habitList}>
-            {habits.map(habit => (
-              <View key={habit.id} style={styles.habitRow}>
-                <Pressable
-                  accessibilityRole="checkbox"
-                  accessibilityState={{checked: isHabitComplete(habit, today)}}
-                  onPress={() => toggleHabit(habit)}
-                  style={({pressed}) => [
-                    styles.habitTapTarget,
-                    pressed && styles.habitRowPressed,
-                  ]}>
+        <ScrollView
+          contentContainerStyle={styles.contentScrollContent}
+          showsVerticalScrollIndicator={false}
+          style={styles.contentScroll}>
+          {activeTab === 'Home' ? (
+            <>
+              <HistoryCalendar
+                habits={habits}
+                actionColor={actionColor}
+                isDarkTheme={isDarkTheme}
+                onChangeDate={setHistoryDate}
+                selectedDate={historyDate}
+              />
+              <View style={styles.progressPanel}>
+                <View style={styles.progressHeader}>
+                  <View>
+                    <Text style={[styles.panelLabel, {color: actionColor}]}>
+                      TODAY'S RHYTHM
+                    </Text>
+                    <Text style={styles.progressTitle}>
+                      {completedCount} of {habits.length} complete
+                    </Text>
+                  </View>
+                  <Text style={[styles.progressPercent, {color: actionColor}]}>
+                    {Math.round(progress * 100)}%
+                  </Text>
+                </View>
+                <View style={styles.progressTrack}>
                   <View
                     style={[
-                      styles.habitMarker,
-                      {backgroundColor: habit.color},
-                    ]}>
-                    {isHabitComplete(habit, today) && (
-                      <Text style={styles.checkmark}>OK</Text>
-                    )}
-                  </View>
-                  <View style={styles.habitCopy}>
-                    <Text
-                      style={[
-                        styles.habitName,
-                        isHabitComplete(habit, today) && styles.completedText,
-                      ]}>
-                      {habit.name}
-                    </Text>
-                    <Text style={styles.habitDetail}>
-                      {habit.detail}
-                      {habit.reminderTime ? `  ·  ${habit.reminderTime}` : ''}
-                      {`  ·  ${habit.repeatDays.join(', ')}`}
-                    </Text>
-                  </View>
-                  <Text style={styles.streak}>
-                    {getHabitStreak(habit, today)} day streak
-                  </Text>
-                </Pressable>
-                <Pressable
-                  accessibilityLabel={`More actions for ${habit.name}`}
-                  onPress={() => showHabitActions(habit)}
-                  style={styles.moreButton}>
-                  <Text style={styles.moreText}>...</Text>
-                </Pressable>
+                      styles.progressFill,
+                      {
+                        backgroundColor: actionColor,
+                        width: `${progress * 100}%`,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.progressHint}>
+                  Small steps, repeated with care.
+                </Text>
               </View>
-            ))}
-          </View>
-        )}
-
-        {activeTab === 'Today' && (
-          <Pressable
-            accessibilityRole="button"
-            onPress={openAddHabit}
-            style={({pressed}) => [
-              styles.addButton,
-              pressed && styles.buttonPressed,
-            ]}>
-            <Text style={styles.addButtonText}>+ Add a habit</Text>
-          </Pressable>
-        )}
+              <HabitList
+                habits={habits}
+                actionColor={actionColor}
+                isDarkTheme={isDarkTheme}
+                onAddHabit={openAddHabit}
+                onMoreActions={showHabitActions}
+                onToggleHabitOnDate={toggleHabitOnDate}
+                selectedDate={historyDate}
+              />
+            </>
+          ) : activeTab === 'Manage' ? (
+            <ManageHabitsScreen
+              habits={habits}
+              actionColor={actionColor}
+              isDarkTheme={isDarkTheme}
+              onAddHabit={openAddHabit}
+              onEditHabit={editHabit}
+              onRemoveHabit={removeHabit}
+            />
+          ) : activeTab === 'Stats' ? (
+            selectedStatsHabitId === null ? (
+              <StatsScreen
+                habits={habits}
+                actionColor={actionColor}
+                isDarkTheme={isDarkTheme}
+                onHabitPress={habit => setSelectedStatsHabitId(habit.id)}
+                today={today}
+              />
+            ) : (
+              <StatsScreen
+                habits={habits}
+                actionColor={actionColor}
+                isDarkTheme={isDarkTheme}
+                onBack={() => setSelectedStatsHabitId(null)}
+                selectedHabitId={selectedStatsHabitId}
+                today={today}
+              />
+            )
+          ) : activeTab === 'Settings' ? (
+            <SettingsPanel
+              activeHabitCount={habits.length}
+              actionColor={actionColor}
+              apiKeyConfigured={Boolean(REVENUECAT_API_KEY)}
+              billingMessage={billingMessage}
+              isBillingBusy={isBillingBusy}
+              isPremium={isPremium}
+              isPremiumModalVisible={isPremiumModalVisible}
+              offer={premiumOffer}
+              onClosePremium={() => setIsPremiumModalVisible(false)}
+              onDeleteLocalData={deleteLocalData}
+              onActionColorChange={changeActionColor}
+              onRemindersEnabledChange={changeRemindersEnabled}
+              onThemeModeChange={changeThemeMode}
+              onOpenPremium={openPremium}
+              onPurchasePremium={purchasePremium}
+              onRestorePremium={restorePremium}
+              remindersEnabled={remindersEnabled}
+              themeMode={themeMode}
+            />
+          ) : null}
+        </ScrollView>
 
         <View style={styles.tabBar}>
-          {(['Today', 'History', 'Settings', 'Premium'] as Tab[]).map(tab => (
-            <Pressable key={tab} onPress={() => setActiveTab(tab)}>
-              <Text style={[styles.tab, activeTab === tab && styles.activeTab]}>
+          {(['Home', 'Manage', 'Stats', 'Settings'] as Tab[]).map(tab => (
+            <Pressable key={tab} onPress={() => selectMainTab(tab)}>
+              <Text
+                style={[
+                  styles.tab,
+                  {color: activeTab === tab ? actionColor : colors.muted},
+                ]}>
                 {tab}
               </Text>
             </Pressable>
           ))}
         </View>
       </View>
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setIsAddModalVisible(false)}
-        transparent
-        visible={isAddModalVisible}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {editingHabitId === null ? 'New habit' : 'Edit habit'}
-              </Text>
-              <Pressable
-                onPress={() => {
-                  setIsAddModalVisible(false);
-                  setEditingHabitId(null);
-                }}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.inputLabel}>HABIT NAME</Text>
-            <TextInput
-              autoFocus
-              onChangeText={setNewHabitName}
-              placeholder="e.g. Drink water"
-              placeholderTextColor={colors.muted}
-              style={styles.input}
-              value={newHabitName}
-            />
-            <Text style={styles.inputLabel}>DETAIL (OPTIONAL)</Text>
-            <TextInput
-              onChangeText={setNewHabitDetail}
-              placeholder="e.g. 6 glasses"
-              placeholderTextColor={colors.muted}
-              style={styles.input}
-              value={newHabitDetail}
-            />
-            <Text style={styles.inputLabel}>REPEAT ON</Text>
-            <View style={styles.repeatDayRow}>
-              {WEEKDAYS.map(day => {
-                const selected = newHabitRepeatDays.includes(day);
-                return (
-                  <Pressable
-                    accessibilityRole="checkbox"
-                    accessibilityState={{checked: selected}}
-                    accessibilityLabel={`Repeat on ${day}`}
-                    key={day}
-                    onPress={() => toggleRepeatDay(day)}
-                    style={[
-                      styles.repeatDay,
-                      selected && styles.repeatDaySelected,
-                    ]}>
-                    <Text
-                      style={[
-                        styles.repeatDayText,
-                        selected && styles.repeatDayTextSelected,
-                      ]}>
-                      {day}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Text style={styles.inputLabel}>REMINDER (OPTIONAL)</Text>
-            <TimePickerField
-              clearTextStyle={styles.clearReminderText}
-              colors={colors}
-              inputStyle={styles.timePickerButton}
-              onChange={setNewHabitReminder}
-              onClear={() => setNewHabitReminder('')}
-              value={newHabitReminder}
-            />
-            <Pressable
-              accessibilityRole="button"
-              onPress={addHabit}
-              style={({pressed}) => [
-                styles.saveButton,
-                pressed && styles.buttonPressed,
-              ]}>
-              <Text style={styles.saveButtonText}>Save habit</Text>
-            </Pressable>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setIsPremiumModalVisible(false)}
-        transparent
-        visible={isPremiumModalVisible}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Premium</Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setIsPremiumModalVisible(false)}>
-                <Text style={styles.cancelText}>Close</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.premiumModalTitle}>
-              Make more room for your rhythm.
-            </Text>
-            <Text style={styles.premiumModalCopy}>
-              Unlock unlimited habits and keep your progress growing across
-              every season.
-            </Text>
-            {isPremium ? (
-              <Text style={styles.billingSuccess}>Premium is active.</Text>
-            ) : premiumOffer ? (
-              <Pressable
-                accessibilityRole="button"
-                disabled={isBillingBusy}
-                onPress={purchasePremium}
-                style={({pressed}) => [
-                  styles.saveButton,
-                  pressed && styles.buttonPressed,
-                  isBillingBusy && styles.disabledButton,
-                ]}>
-                <Text style={styles.saveButtonText}>
-                  {isBillingBusy
-                    ? 'Connecting to Google Play...'
-                    : `Continue for ${premiumOffer.price}`}
-                </Text>
-              </Pressable>
-            ) : (
-              <Text style={styles.billingMessage}>
-                {REVENUECAT_API_KEY
-                  ? 'Loading the Google Play subscription...'
-                  : 'Google Play billing is not configured yet.'}
-              </Text>
-            )}
-            {billingMessage ? (
-              <Text style={styles.billingMessage}>{billingMessage}</Text>
-            ) : null}
-            {!isPremium && (
-              <Pressable
-                accessibilityRole="button"
-                disabled={isBillingBusy}
-                onPress={restorePremium}
-                style={styles.restoreButton}>
-                <Text style={styles.restoreButtonText}>Restore purchase</Text>
-              </Pressable>
-            )}
-          </View>
-        </View>
-      </Modal>
+      <HabitFormModal
+        actionColor={actionColor}
+        themeMode={themeMode}
+        detail={newHabitDetail}
+        duration={newHabitDuration}
+        editingHabitId={editingHabitId}
+        location={newHabitLocation}
+        name={newHabitName}
+        onChangeColor={setNewHabitColor}
+        onChangeDetail={setNewHabitDetail}
+        onChangeDuration={setNewHabitDuration}
+        onChangeLocation={setNewHabitLocation}
+        onChangeName={setNewHabitName}
+        onChangeReminder={setNewHabitReminder}
+        onChangeTimeOfDay={setNewHabitTimeOfDay}
+        onClose={() => {
+          setIsAddModalVisible(false);
+          setEditingHabitId(null);
+        }}
+        onSave={addHabit}
+        onToggleDay={toggleRepeatDay}
+        reminder={newHabitReminder}
+        repeatDays={newHabitRepeatDays}
+        selectedColor={newHabitColor}
+        timeOfDay={newHabitTimeOfDay}
+        visible={isAddModalVisible}
+      />
+      <HabitActionsModal
+        actionColor={actionColor}
+        habitName={actionHabit?.name ?? ''}
+        isDarkTheme={isDarkTheme}
+        onClose={() => setActionHabit(null)}
+        onDelete={() => {
+          if (actionHabit) {
+            const habit = actionHabit;
+            setActionHabit(null);
+            removeHabit(habit);
+          }
+        }}
+        onEdit={() => {
+          if (actionHabit) {
+            const habit = actionHabit;
+            setActionHabit(null);
+            editHabit(habit);
+          }
+        }}
+        visible={actionHabit !== null}
+      />
+      <DeleteHabitModal
+        actionColor={actionColor}
+        habitName={deleteHabitCandidate?.name ?? ''}
+        isDarkTheme={isDarkTheme}
+        onCancel={() => setDeleteHabitCandidate(null)}
+        onConfirm={confirmDeleteHabit}
+        visible={deleteHabitCandidate !== null}
+      />
     </SafeAreaView>
   );
 }
@@ -734,6 +738,8 @@ const styles = StyleSheet.create({
   },
   onboardingNote: {color: colors.muted, fontSize: 12, marginBottom: 24},
   container: {flex: 1, paddingHorizontal: 22, paddingTop: 20},
+  contentScroll: {flex: 1},
+  contentScrollContent: {flexGrow: 1, paddingBottom: 24},
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -789,209 +795,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {backgroundColor: colors.teal, borderRadius: 4, height: 7},
   progressHint: {color: colors.muted, fontSize: 12, marginTop: 12},
-  historyPanel: {
-    backgroundColor: colors.warm,
-    borderRadius: 6,
-    marginBottom: 30,
-    padding: 18,
-  },
-  historyTitle: {
-    color: colors.ink,
-    fontSize: 19,
-    fontWeight: '700',
-    marginTop: 8,
-  },
-  historyGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 22,
-  },
-  historyDay: {alignItems: 'center'},
-  historyDayName: {color: colors.muted, fontSize: 11, fontWeight: '600'},
-  historyDot: {
-    backgroundColor: '#D8D5C9',
-    borderRadius: 7,
-    height: 14,
-    marginVertical: 8,
-    width: 14,
-  },
-  historyDotComplete: {backgroundColor: colors.teal},
-  historyDayCount: {color: colors.ink, fontSize: 10},
-  settingsPanel: {
-    backgroundColor: colors.warm,
-    borderRadius: 6,
-    marginBottom: 30,
-    padding: 18,
-  },
-  settingRow: {
-    alignItems: 'center',
-    borderTopColor: colors.line,
-    borderTopWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 18,
-    paddingTop: 14,
-  },
-  settingTitle: {color: colors.ink, fontSize: 15, fontWeight: '600'},
-  settingDetail: {color: colors.muted, fontSize: 12, marginTop: 4},
-  settingValue: {color: colors.teal, fontSize: 12, fontWeight: '700'},
-  premiumPanel: {
-    backgroundColor: colors.teal,
-    borderRadius: 6,
-    marginBottom: 30,
-    padding: 18,
-  },
-  premiumPanelLabel: {color: '#FFFFFF'},
-  premiumCopy: {color: '#E3F0EA', fontSize: 14, lineHeight: 21, marginTop: 14},
-  premiumModalTitle: {
-    color: colors.ink,
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  premiumModalCopy: {
-    color: colors.muted,
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 10,
-  },
-  billingMessage: {
-    color: colors.muted,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 18,
-    textAlign: 'center',
-  },
-  billingSuccess: {
-    color: colors.teal,
-    fontSize: 14,
-    fontWeight: '700',
-    marginTop: 22,
-    textAlign: 'center',
-  },
-  disabledButton: {opacity: 0.55},
-  restoreButton: {alignItems: 'center', marginTop: 18, padding: 8},
-  restoreButtonText: {color: colors.teal, fontSize: 13, fontWeight: '700'},
-  sectionHeader: {
-    alignItems: 'baseline',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  sectionTitle: {color: colors.ink, fontSize: 18, fontWeight: '700'},
-  sectionCount: {color: colors.muted, fontSize: 12},
-  habitList: {borderTopColor: colors.line, borderTopWidth: 1},
-  habitRow: {
-    alignItems: 'center',
-    borderBottomColor: colors.line,
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    minHeight: 76,
-    paddingVertical: 12,
-  },
-  habitTapTarget: {alignItems: 'center', flex: 1, flexDirection: 'row'},
-  habitRowPressed: {opacity: 0.65},
-  habitMarker: {
-    alignItems: 'center',
-    borderRadius: 17,
-    height: 34,
-    justifyContent: 'center',
-    width: 34,
-  },
-  checkmark: {color: '#FFFFFF', fontSize: 10, fontWeight: '800'},
-  habitCopy: {flex: 1, marginLeft: 14},
-  habitName: {color: colors.ink, fontSize: 16, fontWeight: '600'},
-  completedText: {textDecorationLine: 'line-through'},
-  habitDetail: {color: colors.muted, fontSize: 12, marginTop: 4},
-  streak: {color: colors.teal, fontSize: 11, fontWeight: '700'},
-  moreButton: {
-    alignItems: 'center',
-    height: 40,
-    justifyContent: 'center',
-    marginLeft: 4,
-    width: 30,
-  },
-  moreText: {
-    color: colors.muted,
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 2,
-  },
-  addButton: {
-    alignItems: 'center',
-    borderColor: colors.teal,
-    borderRadius: 5,
-    borderWidth: 1,
-    marginTop: 24,
-    paddingVertical: 13,
-  },
-  addButtonText: {color: colors.teal, fontSize: 14, fontWeight: '700'},
   buttonPressed: {opacity: 0.7},
-  modalBackdrop: {
-    backgroundColor: 'rgba(32, 42, 42, 0.35)',
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalCard: {
-    backgroundColor: colors.paper,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    padding: 22,
-    paddingBottom: 30,
-  },
-  modalHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 26,
-  },
-  modalTitle: {color: colors.ink, fontSize: 22, fontWeight: '700'},
-  cancelText: {color: colors.teal, fontSize: 14, fontWeight: '600'},
-  inputLabel: {
-    color: colors.teal,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1,
-    marginBottom: 7,
-    marginTop: 14,
-  },
-  input: {
-    borderBottomColor: colors.line,
-    borderBottomWidth: 1,
-    color: colors.ink,
-    fontSize: 16,
-    paddingBottom: 10,
-    paddingHorizontal: 0,
-  },
-  timePickerButton: {
-    borderBottomColor: colors.line,
-    borderBottomWidth: 1,
-    paddingBottom: 10,
-    paddingTop: 2,
-  },
-  clearReminderText: {
-    color: colors.teal,
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 8,
-  },
-  repeatDayRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 2,
-  },
-  repeatDay: {
-    alignItems: 'center',
-    borderColor: colors.line,
-    borderRadius: 18,
-    borderWidth: 1,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  repeatDaySelected: {backgroundColor: colors.teal, borderColor: colors.teal},
-  repeatDayText: {color: colors.muted, fontSize: 12, fontWeight: '700'},
-  repeatDayTextSelected: {color: '#FFFFFF'},
   saveButton: {
     alignItems: 'center',
     backgroundColor: colors.teal,
@@ -1012,6 +816,17 @@ const styles = StyleSheet.create({
   },
   tab: {color: colors.muted, fontSize: 12, fontWeight: '600'},
   activeTab: {color: colors.teal},
+  darkTitle: {color: '#F5F7F6'},
+  darkOnboardingText: {color: '#F5F7F6'},
+  darkOnboardingMutedText: {color: '#B7C1BE'},
 });
+
+function App(): React.JSX.Element {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
+}
 
 export default App;

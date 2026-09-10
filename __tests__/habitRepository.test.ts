@@ -4,14 +4,19 @@ import {
   isHabitComplete,
   isHabitScheduledOnDate,
   Habit,
+  clearLocalHabitData,
   isValidReminderTime,
   loadHabits,
   loadOnboardingCompleted,
+  loadRemindersEnabled,
   normalizeRepeatDays,
+  normalizeTimeOfDay,
   WEEKDAYS,
   Weekday,
   saveHabits,
   saveOnboardingCompleted,
+  saveRemindersEnabled,
+  toggleHabitCompletionOnDate,
 } from '../src/data/habitRepository';
 import {describe, expect, it, jest} from '@jest/globals';
 
@@ -20,6 +25,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   default: {
     getItem: () => Promise.resolve(null),
     setItem: () => Promise.resolve(),
+    removeItem: () => Promise.resolve(),
   },
 }));
 
@@ -28,11 +34,13 @@ const mockedStorage = (
     default: {
       getItem: () => Promise<null | string>;
       setItem: (key: string, value: string) => Promise<void>;
+      removeItem: (key: string) => Promise<void>;
     };
   }
 ).default;
 const mockGetItem = jest.spyOn(mockedStorage, 'getItem');
 const mockSetItem = jest.spyOn(mockedStorage, 'setItem');
+const mockRemoveItem = jest.spyOn(mockedStorage, 'removeItem');
 
 describe('habit completion history', () => {
   const habit: Habit = {
@@ -53,6 +61,26 @@ describe('habit completion history', () => {
     const today = new Date(2026, 8, 2);
     expect(isHabitComplete(habit, today)).toBe(true);
     expect(getHabitStreak(habit, today)).toBe(2);
+  });
+
+  it('toggles only the selected date and preserves the rest of history', () => {
+    const selectedDate = new Date(2026, 8, 3);
+    const updated = toggleHabitCompletionOnDate(habit, selectedDate);
+
+    expect(updated.completedDates).toEqual([
+      '2026-09-02',
+      '2026-09-01',
+      '2026-09-03',
+    ]);
+
+    const toggledAgain = toggleHabitCompletionOnDate(updated, selectedDate);
+    expect(toggledAgain.completedDates).toEqual(['2026-09-02', '2026-09-01']);
+  });
+
+  it('does not duplicate an existing selected date', () => {
+    const updated = toggleHabitCompletionOnDate(habit, new Date(2026, 8, 2));
+
+    expect(updated.completedDates).toEqual(['2026-09-01']);
   });
 
   it('returns no streak when today is incomplete', () => {
@@ -112,6 +140,31 @@ describe('habit completion history', () => {
     expect(normalizeRepeatDays([])).toEqual([...WEEKDAYS]);
   });
 
+  it('normalizes optional habit metadata while preserving legacy defaults', async () => {
+    mockGetItem.mockResolvedValueOnce(
+      JSON.stringify([
+        {
+          id: 3,
+          name: '  Walk  ',
+          timeOfDay: 'morning',
+          location: '  Park ',
+          durationMinutes: 30,
+          presetId: 'movement',
+        },
+      ]),
+    );
+
+    await expect(loadHabits()).resolves.toEqual([
+      expect.objectContaining({
+        timeOfDay: 'morning',
+        location: 'Park',
+        durationMinutes: 30,
+        presetId: 'movement',
+      }),
+    ]);
+    expect(normalizeTimeOfDay('night')).toBeUndefined();
+  });
+
   it('checks whether a habit is scheduled for a local date', () => {
     const weekdaysOnly = {
       ...habit,
@@ -128,5 +181,23 @@ describe('habit completion history', () => {
   it('defaults onboarding to incomplete and can persist completion', async () => {
     await expect(loadOnboardingCompleted()).resolves.toBe(false);
     await expect(saveOnboardingCompleted()).resolves.toBeUndefined();
+  });
+
+  it('defaults reminders to enabled and persists the preference', async () => {
+    await expect(loadRemindersEnabled()).resolves.toBe(true);
+    await saveRemindersEnabled(false);
+    expect(mockSetItem).toHaveBeenCalledWith(
+      '@habitmeister/reminders-enabled',
+      'false',
+    );
+  });
+
+  it('clears local habits and onboarding state', async () => {
+    await clearLocalHabitData();
+
+    expect(mockSetItem).toHaveBeenCalledWith('@habitmeister/habits', '[]');
+    expect(mockRemoveItem).toHaveBeenCalledWith(
+      '@habitmeister/onboarding-completed',
+    );
   });
 });
