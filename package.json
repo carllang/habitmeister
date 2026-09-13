@@ -15,7 +15,8 @@
     "@react-native-community/datetimepicker": "^8.2.0",
     "react": "18.2.0",
     "react-native": "0.73.0",
-    "react-native-purchases": "^10.8.1"
+    "react-native-purchases": "^9.6.15",
+    "react-native-purchases-ui": "^9.6.15"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

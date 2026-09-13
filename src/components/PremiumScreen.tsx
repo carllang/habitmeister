@@ -5,6 +5,8 @@ import type {PremiumOffer} from '../monetization/entitlement';
 
 type PremiumScreenProps = {
   actionColor: string;
+  showModal?: boolean;
+  showPanel?: boolean;
   themeMode: 'light' | 'dark';
   apiKeyConfigured: boolean;
   billingMessage: string;
@@ -16,10 +18,13 @@ type PremiumScreenProps = {
   onOpenPremium: () => void;
   onPurchasePremium: () => void;
   onRestorePremium: () => void;
+  onManagePremium?: () => void;
 };
 
 export function PremiumScreen({
   actionColor,
+  showModal = true,
+  showPanel = true,
   themeMode,
   apiKeyConfigured,
   billingMessage,
@@ -31,111 +36,141 @@ export function PremiumScreen({
   onOpenPremium,
   onPurchasePremium,
   onRestorePremium,
+  onManagePremium,
 }: PremiumScreenProps): React.JSX.Element {
   const isDarkTheme = themeMode === 'dark';
   const modalBackground = isDarkTheme ? '#111414' : '#F7F3EC';
-  const actionTextColor = actionColor === '#B27A00' ? '#202A2A' : '#FFFFFF';
+  const actionTextColor =
+    actionColor === '#B27A00' || actionColor === '#D98A00'
+      ? '#202A2A'
+      : '#FFFFFF';
 
   const modalText = isDarkTheme ? '#F5F7F6' : '#202A2A';
   const modalMutedText = isDarkTheme ? '#B7C1BE' : '#778080';
 
   return (
     <>
-      <View style={[styles.panel, {backgroundColor: actionColor}]}>
-        <Text style={styles.panelLabel}>HABITMEISTER PREMIUM</Text>
-        <Text style={[styles.panelTitle, {color: actionTextColor}]}>
-          More room for the life you are building.
-        </Text>
-        <Text style={styles.panelCopy}>
-          Unlock unlimited habits, deeper insights, and data export while
-          keeping the daily habit loop free for everyone.
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={onOpenPremium}
-          style={({pressed}) => [
-            styles.primaryButton,
-            {backgroundColor: actionColor},
-            pressed && styles.buttonPressed,
-          ]}>
-          <Text style={[styles.primaryButtonText, {color: actionTextColor}]}>
-            {isPremium ? 'Premium active' : 'Explore Premium'}
+      {showPanel && (
+        <View style={[styles.panel, {backgroundColor: actionColor}]}>
+          <Text style={styles.panelLabel}>HABITMEISTER PREMIUM</Text>
+          <Text style={[styles.panelTitle, {color: actionTextColor}]}>
+            Unlimited habits and deeper progress.
           </Text>
-        </Pressable>
-      </View>
-
-      <Modal
-        animationType="slide"
-        onRequestClose={onClosePremium}
-        transparent
-        visible={isPremiumModalVisible}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, {backgroundColor: modalBackground}]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, {color: modalText}]}>
-                Premium
-              </Text>
-              <Pressable accessibilityRole="button" onPress={onClosePremium}>
-                <Text style={[styles.cancelText, {color: actionColor}]}>
-                  Close
-                </Text>
-              </Pressable>
-            </View>
-            <Text style={[styles.modalCopyTitle, {color: modalText}]}>
-              Make more room for your rhythm.
+          <Text style={styles.panelCopy}>
+            Go beyond the free 5-habit limit and unlock detailed stats for each
+            habit while keeping your daily rhythm simple.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onOpenPremium}
+            style={({pressed}) => [
+              styles.primaryButton,
+              {backgroundColor: actionColor},
+              pressed && styles.buttonPressed,
+            ]}>
+            <Text style={[styles.primaryButtonText, {color: actionTextColor}]}>
+              {isPremium ? 'Premium active' : 'Explore Premium'}
             </Text>
-            <Text style={[styles.modalCopy, {color: modalMutedText}]}>
-              Unlock unlimited habits and keep your progress growing across
-              every season.
-            </Text>
-            {isPremium ? (
-              <Text style={[styles.billingSuccess, {color: actionColor}]}>
-                Premium is active.
-              </Text>
-            ) : offer ? (
-              <Pressable
-                accessibilityRole="button"
-                disabled={isBillingBusy}
-                onPress={onPurchasePremium}
-                style={({pressed}) => [
-                  styles.primaryButton,
-                  {backgroundColor: actionColor},
-                  pressed && styles.buttonPressed,
-                  isBillingBusy && styles.disabledButton,
-                ]}>
-                <Text
-                  style={[styles.primaryButtonText, {color: actionTextColor}]}>
-                  {isBillingBusy
-                    ? 'Connecting to Google Play...'
-                    : `Continue for ${offer.price}`}
-                </Text>
-              </Pressable>
-            ) : (
-              <Text style={[styles.billingMessage, {color: modalMutedText}]}>
-                {apiKeyConfigured
-                  ? 'Loading the Google Play subscription...'
-                  : 'Google Play billing is not configured yet.'}
-              </Text>
-            )}
-            {billingMessage ? (
-              <Text style={[styles.billingMessage, {color: modalMutedText}]}>
-                {billingMessage}
-              </Text>
-            ) : null}
-            {!isPremium && (
-              <Pressable
-                accessibilityRole="button"
-                disabled={isBillingBusy}
-                onPress={onRestorePremium}
-                style={styles.restoreButton}>
-                <Text style={[styles.restoreButtonText, {color: actionColor}]}>
-                  Restore purchase
-                </Text>
-              </Pressable>
-            )}
-          </View>
+          </Pressable>
         </View>
-      </Modal>
+      )}
+
+      {showModal && (
+        <Modal
+          animationType="fade"
+          onRequestClose={onClosePremium}
+          transparent
+          visible={isPremiumModalVisible}>
+          <View style={styles.modalBackdrop}>
+            <View
+              style={[styles.modalCard, {backgroundColor: modalBackground}]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, {color: modalText}]}>
+                  Premium
+                </Text>
+                <Pressable accessibilityRole="button" onPress={onClosePremium}>
+                  <Text style={[styles.cancelText, {color: actionColor}]}>
+                    Close
+                  </Text>
+                </Pressable>
+              </View>
+              <Text style={[styles.modalCopyTitle, {color: modalText}]}>
+                Make more room for your rhythm.
+              </Text>
+              <Text style={[styles.modalCopy, {color: modalMutedText}]}>
+                Unlock unlimited habits and keep your progress growing across
+                every season.
+              </Text>
+              {isPremium ? (
+                <>
+                  <Text style={[styles.billingSuccess, {color: actionColor}]}>
+                    Premium is active.
+                  </Text>
+                  {onManagePremium ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={isBillingBusy}
+                      onPress={onManagePremium}
+                      style={styles.restoreButton}>
+                      <Text
+                        style={[
+                          styles.restoreButtonText,
+                          {color: actionColor},
+                        ]}>
+                        Manage subscription
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </>
+              ) : offer ? (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isBillingBusy}
+                  onPress={onPurchasePremium}
+                  style={({pressed}) => [
+                    styles.primaryButton,
+                    {backgroundColor: actionColor},
+                    pressed && styles.buttonPressed,
+                    isBillingBusy && styles.disabledButton,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.primaryButtonText,
+                      {color: actionTextColor},
+                    ]}>
+                    {isBillingBusy
+                      ? 'Connecting to Google Play...'
+                      : `Continue for ${offer.price}`}
+                  </Text>
+                </Pressable>
+              ) : (
+                <Text style={[styles.billingMessage, {color: modalMutedText}]}>
+                  {apiKeyConfigured
+                    ? 'Loading the Google Play subscription...'
+                    : 'Google Play billing is not configured yet.'}
+                </Text>
+              )}
+              {billingMessage ? (
+                <Text style={[styles.billingMessage, {color: modalMutedText}]}>
+                  {billingMessage}
+                </Text>
+              ) : null}
+              {!isPremium && (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isBillingBusy}
+                  onPress={onRestorePremium}
+                  style={styles.restoreButton}>
+                  <Text
+                    style={[styles.restoreButtonText, {color: actionColor}]}>
+                    Restore purchase
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        </Modal>
+      )}
     </>
   );
 }
@@ -172,15 +207,17 @@ const styles = StyleSheet.create({
   buttonPressed: {opacity: 0.72},
   disabledButton: {opacity: 0.55},
   modalBackdrop: {
-    backgroundColor: 'rgba(32, 42, 42, 0.42)',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     flex: 1,
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    padding: 24,
   },
   modalCard: {
     backgroundColor: '#F7F3EC',
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    padding: 24,
+    borderRadius: 10,
+    padding: 22,
+    width: '100%',
   },
   modalHeader: {
     alignItems: 'center',
@@ -193,7 +230,7 @@ const styles = StyleSheet.create({
     color: '#202A2A',
     fontSize: 20,
     fontWeight: '700',
-    marginTop: 22,
+    marginTop: 20,
   },
   modalCopy: {
     color: '#778080',

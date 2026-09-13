@@ -11,8 +11,8 @@ import {
   View,
 } from 'react-native';
 
-import {TimePickerField} from '../TimePickerField';
 import {
+  HABIT_COLORS,
   TimeOfDay,
   Weekday,
   WEEKDAYS,
@@ -32,12 +32,10 @@ type HabitFormModalProps = {
   onChangeDuration: (value: string) => void;
   onChangeLocation: (value: string) => void;
   onChangeName: (value: string) => void;
-  onChangeReminder: (value: string) => void;
   onChangeTimeOfDay: (value: TimeOfDay | undefined) => void;
   onClose: () => void;
   onSave: () => void;
   onToggleDay: (day: Weekday) => void;
-  reminder: string;
   repeatDays: Weekday[];
   selectedColor: string;
   timeOfDay: TimeOfDay | undefined;
@@ -50,7 +48,7 @@ const PRESETS = [
   {detail: '30 minutes', name: 'Move your body'},
 ];
 
-const COLORS = ['#286B69', '#E67E55', '#D9A441', '#7A6FA8', '#4B8F8C'];
+const COLORS = HABIT_COLORS;
 
 export function HabitFormModal({
   actionColor,
@@ -65,12 +63,10 @@ export function HabitFormModal({
   onChangeDuration,
   onChangeLocation,
   onChangeName,
-  onChangeReminder,
   onChangeTimeOfDay,
   onClose,
   onSave,
   onToggleDay,
-  reminder,
   repeatDays,
   selectedColor,
   timeOfDay,
@@ -195,7 +191,7 @@ export function HabitFormModal({
             })}
           </View>
           <Text style={[styles.inputLabel, {color: actionColor}]}>COLOR</Text>
-          <View style={styles.choiceRow}>
+          <View style={styles.colorGrid}>
             {COLORS.map(color => (
               <Pressable
                 accessibilityLabel={`Choose color ${color}`}
@@ -206,7 +202,10 @@ export function HabitFormModal({
                 style={[
                   styles.colorChoice,
                   {backgroundColor: color},
-                  selectedColor === color && styles.selectedColor,
+                  selectedColor === color && [
+                    styles.selectedColor,
+                    {borderColor: isDarkTheme ? '#FFFFFF' : '#202A2A'},
+                  ],
                 ]}
               />
             ))}
@@ -264,20 +263,6 @@ export function HabitFormModal({
             ]}
             value={duration}
           />
-          <Text style={[styles.inputLabel, {color: actionColor}]}>
-            REMINDER (OPTIONAL)
-          </Text>
-          <TimePickerField
-            clearTextStyle={[styles.clearReminderText, {color: actionColor}]}
-            colors={{...themeColors, teal: actionColor}}
-            inputStyle={[
-              styles.timePickerButton,
-              {borderBottomColor: themeColors.line},
-            ]}
-            onChange={onChangeReminder}
-            onClear={() => onChangeReminder('')}
-            value={reminder}
-          />
           <Pressable
             accessibilityRole="button"
             onPress={onSave}
@@ -298,7 +283,7 @@ const colors = {
   ink: '#202A2A',
   muted: '#778080',
   line: '#E5DED3',
-  teal: '#286B69',
+  teal: '#31A39C',
   paper: '#F7F3EC',
 };
 
@@ -360,6 +345,12 @@ const styles = StyleSheet.create({
   repeatDayText: {color: colors.muted, fontSize: 11, fontWeight: '700'},
   repeatDayTextSelected: {color: '#FFFFFF'},
   choiceRow: {flexDirection: 'row', gap: 8},
+  colorGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 2,
+  },
   timeOfDayChoice: {
     borderColor: colors.line,
     borderRadius: 5,
@@ -369,18 +360,8 @@ const styles = StyleSheet.create({
   },
   selectedChoice: {backgroundColor: '#E0ECE7', borderColor: colors.teal},
   choiceText: {color: colors.ink, fontSize: 11, fontWeight: '700'},
-  colorChoice: {borderRadius: 16, height: 32, width: 32},
+  colorChoice: {borderRadius: 18, height: 36, width: 36},
   selectedColor: {borderColor: colors.ink, borderWidth: 3},
-  timePickerButton: {
-    borderBottomColor: colors.line,
-    borderBottomWidth: 1,
-    paddingBottom: 9,
-  },
-  clearReminderText: {
-    color: colors.teal,
-    fontSize: 12,
-    marginTop: 8,
-  },
   saveButton: {
     alignItems: 'center',
     backgroundColor: colors.teal,

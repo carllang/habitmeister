@@ -121,7 +121,7 @@ export const initialHabits: Habit[] = [
     name: 'Morning pages',
     detail: '10 minutes',
     completed: true,
-    color: '#E67E55',
+    color: '#F97316',
     completedDates: [getDateKey()],
     repeatDays: [...WEEKDAYS],
   },
@@ -130,7 +130,7 @@ export const initialHabits: Habit[] = [
     name: 'Move your body',
     detail: '30 minutes',
     completed: false,
-    color: '#4B8F8C',
+    color: '#0EA5E9',
     completedDates: [],
     repeatDays: [...WEEKDAYS],
   },
@@ -139,7 +139,7 @@ export const initialHabits: Habit[] = [
     name: 'Read something',
     detail: '20 pages',
     completed: false,
-    color: '#D9A441',
+    color: '#EAB308',
     completedDates: [],
     repeatDays: [...WEEKDAYS],
   },
@@ -148,7 +148,7 @@ export const initialHabits: Habit[] = [
     name: 'Wind down',
     detail: 'Before 10:30 PM',
     completed: false,
-    color: '#7A6FA8',
+    color: '#A855F7',
     completedDates: [],
     repeatDays: [...WEEKDAYS],
   },
@@ -163,13 +163,54 @@ const ACTION_COLOR_STORAGE_KEY = '@habitmeister/action-color';
 export type ThemeMode = 'light' | 'dark';
 
 export const ACTION_COLORS = [
-  '#286B69',
-  '#2F6FED',
-  '#9B59B6',
-  '#C65D3A',
-  '#B27A00',
+  '#31A39C',
+  '#3B82F6',
+  '#A855F7',
+  '#E05B35',
+  '#D98A00',
 ] as const;
 export type ActionColor = (typeof ACTION_COLORS)[number];
+
+const LEGACY_ACTION_COLORS: Record<string, ActionColor> = {
+  '#286B69': '#31A39C',
+  '#2F6FED': '#3B82F6',
+  '#9B59B6': '#A855F7',
+  '#C65D3A': '#E05B35',
+  '#B27A00': '#D98A00',
+};
+
+export const HABIT_COLORS = [
+  '#0EA5E9', // Ocean Blue
+  '#06B6D4', // Cyan
+  '#10B981', // Emerald
+  '#22C55E', // Green
+  '#84CC16', // Lime
+  '#EAB308', // Amber Gold
+  '#F97316', // Bright Orange
+  '#EF4444', // Coral Red
+  '#EC4899', // Pink
+  '#D946EF', // Fuchsia
+  '#A855F7', // Purple
+  '#6366F1', // Indigo
+] as const;
+
+const LEGACY_HABIT_COLORS: Record<string, string> = {
+  '#286B69': '#10B981',
+  '#31A39C': '#06B6D4',
+  '#E67E55': '#F97316',
+  '#FF6B4A': '#F97316',
+  '#D9A441': '#EAB308',
+  '#F59E0B': '#EAB308',
+  '#7A6FA8': '#A855F7',
+  '#4B8F8C': '#0EA5E9',
+};
+
+function normalizeHabitColor(color: unknown): string {
+  if (typeof color !== 'string' || !color) {
+    return '#0EA5E9';
+  }
+  return LEGACY_HABIT_COLORS[color] ?? color;
+}
 
 function normalizeHabit(value: unknown): Habit | null {
   if (typeof value !== 'object' || value === null) {
@@ -204,7 +245,7 @@ function normalizeHabit(value: unknown): Habit | null {
         ? record.detail.trim()
         : 'Daily',
     completed: completedDates.includes(getDateKey()),
-    color: typeof record.color === 'string' ? record.color : '#286B69',
+    color: normalizeHabitColor(record.color),
     timeOfDay: normalizeTimeOfDay(record.timeOfDay),
     location:
       typeof record.location === 'string' && record.location.trim()
@@ -240,9 +281,9 @@ export async function saveOnboardingCompleted(): Promise<void> {
 export async function loadRemindersEnabled(): Promise<boolean> {
   try {
     const value = await AsyncStorage.getItem(REMINDERS_ENABLED_STORAGE_KEY);
-    return value === null ? true : value === 'true';
+    return value === 'true';
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -253,9 +294,9 @@ export async function saveRemindersEnabled(enabled: boolean): Promise<void> {
 export async function loadThemeMode(): Promise<ThemeMode> {
   try {
     const value = await AsyncStorage.getItem(THEME_MODE_STORAGE_KEY);
-    return value === 'dark' ? 'dark' : 'light';
+    return value === 'light' ? 'light' : 'dark';
   } catch {
-    return 'light';
+    return 'dark';
   }
 }
 
@@ -266,9 +307,16 @@ export async function saveThemeMode(mode: ThemeMode): Promise<void> {
 export async function loadActionColor(): Promise<ActionColor> {
   try {
     const value = await AsyncStorage.getItem(ACTION_COLOR_STORAGE_KEY);
-    return ACTION_COLORS.includes(value as ActionColor)
-      ? (value as ActionColor)
-      : ACTION_COLORS[0];
+    if (!value) {
+      return ACTION_COLORS[0];
+    }
+    if (ACTION_COLORS.includes(value as ActionColor)) {
+      return value as ActionColor;
+    }
+    if (value in LEGACY_ACTION_COLORS) {
+      return LEGACY_ACTION_COLORS[value];
+    }
+    return ACTION_COLORS[0];
   } catch {
     return ACTION_COLORS[0];
   }

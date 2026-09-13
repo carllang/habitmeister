@@ -18,40 +18,36 @@ import {
   clearLocalHabitData,
   getDateKey,
   initialHabits,
-  isValidReminderTime,
   isHabitComplete,
   TimeOfDay,
   WEEKDAYS,
   loadHabits,
   loadOnboardingCompleted,
-  loadRemindersEnabled,
   loadThemeMode,
   loadActionColor,
   saveOnboardingCompleted,
   saveHabits,
-  saveRemindersEnabled,
   saveThemeMode,
   saveActionColor,
   toggleHabitCompletionOnDate,
   ThemeMode,
 } from './src/data/habitRepository';
 import {
+  BillingResult,
   configureRevenueCat,
   entitlementClient,
+  PREMIUM_ENTITLEMENT,
   PremiumOffer,
 } from './src/monetization/entitlement';
 import {DEV_PREMIUM_OVERRIDE, REVENUECAT_API_KEY} from './src/config';
-import {
-  cancelReminder,
-  initialiseReminderNotifications,
-  rescheduleReminders,
-} from './src/notifications/reminderService';
 import {ErrorBoundary} from './src/components/ErrorBoundary';
 import {HabitActionsModal} from './src/components/HabitActionsModal';
 import {DeleteHabitModal} from './src/components/DeleteHabitModal';
+import {FreePlanLimitModal} from './src/components/FreePlanLimitModal';
 import {HabitFormModal} from './src/components/HabitFormModal';
 import {HistoryCalendar} from './src/components/HistoryCalendar';
 import {ManageHabitsScreen} from './src/components/ManageHabitsScreen';
+import {PremiumScreen} from './src/components/PremiumScreen';
 import {SettingsPanel} from './src/components/SettingsPanel';
 import {StatsScreen} from './src/components/StatsScreen';
 import {HabitList} from './src/components/TodayHabitList';
@@ -63,9 +59,8 @@ function AppContent(): React.JSX.Element {
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [newHabitName, setNewHabitName] = useState('');
   const [newHabitDetail, setNewHabitDetail] = useState('');
-  const [newHabitReminder, setNewHabitReminder] = useState('');
   const [newHabitRepeatDays, setNewHabitRepeatDays] = useState([...WEEKDAYS]);
-  const [newHabitColor, setNewHabitColor] = useState('#286B69');
+  const [newHabitColor, setNewHabitColor] = useState('#31A39C');
   const [newHabitTimeOfDay, setNewHabitTimeOfDay] = useState<
     TimeOfDay | undefined
   >();
@@ -73,12 +68,14 @@ function AppContent(): React.JSX.Element {
   const [newHabitDuration, setNewHabitDuration] = useState('');
   const [isHydrated, setIsHydrated] = useState(false);
   const [isOnboardingHydrated, setIsOnboardingHydrated] = useState(false);
-  const [remindersEnabled, setRemindersEnabled] = useState(true);
-  const [themeMode, setThemeMode] = useState<ThemeMode>('light');
-  const [actionColor, setActionColor] = useState<ActionColor>('#286B69');
+  const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
+  const [actionColor, setActionColor] = useState<ActionColor>('#31A39C');
   const [actionHabit, setActionHabit] = useState<Habit | null>(null);
   const [deleteHabitCandidate, setDeleteHabitCandidate] =
     useState<Habit | null>(null);
+  const [isFreePlanLimitVisible, setIsFreePlanLimitVisible] = useState(false);
+  const [isStatsPremiumPromptVisible, setIsStatsPremiumPromptVisible] =
+    useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('Home');
   const [historyDate, setHistoryDate] = useState(() => new Date());
@@ -111,14 +108,12 @@ function AppContent(): React.JSX.Element {
     Promise.all([
       loadHabits(),
       loadOnboardingCompleted(),
-      loadRemindersEnabled(),
       loadThemeMode(),
       loadActionColor(),
     ]).then(
       ([
         savedHabits,
         onboardingCompleted,
-        savedRemindersEnabled,
         savedThemeMode,
         savedActionColor,
       ]) => {
@@ -127,7 +122,6 @@ function AppContent(): React.JSX.Element {
         }
         setHabits(savedHabits);
         setHasCompletedOnboarding(onboardingCompleted);
-        setRemindersEnabled(savedRemindersEnabled);
         setThemeMode(savedThemeMode);
         setActionColor(savedActionColor);
         setIsHydrated(true);
@@ -149,6 +143,15 @@ function AppContent(): React.JSX.Element {
     }
 
     configureRevenueCat(REVENUECAT_API_KEY);
+    const unsubscribe = entitlementClient.subscribeToCustomerInfo(
+      customerInfo => {
+        if (isMounted) {
+          setIsPremium(
+            Boolean(customerInfo.entitlements.active[PREMIUM_ENTITLEMENT]),
+          );
+        }
+      },
+    );
     entitlementClient.getPremiumEntitlement().then(premium => {
       if (isMounted) {
         setIsPremium(premium);
@@ -156,8 +159,26 @@ function AppContent(): React.JSX.Element {
     });
     return () => {
       isMounted = false;
+      unsubscribe();
     };
   }, []);
+
+  const applyBillingResult = (
+    result: BillingResult,
+    fallbackMessage: string,
+  ) => {
+    if (result.status === 'success') {
+      setIsPremium(true);
+      setIsPremiumModalVisible(false);
+      return;
+    }
+
+    if (result.status === 'cancelled') {
+      return;
+    }
+
+    setBillingMessage(result.message || fallbackMessage);
+  };
 
   const completeOnboarding = () => {
     setHasCompletedOnboarding(true);
@@ -173,7 +194,6 @@ function AppContent(): React.JSX.Element {
   };
 
   const deleteLocalData = async () => {
-    await Promise.all(habits.map(habit => cancelReminder(habit.id)));
     await clearLocalHabitData();
     setHabits([]);
     setHasCompletedOnboarding(false);
@@ -182,16 +202,6 @@ function AppContent(): React.JSX.Element {
     setSelectedStatsHabitId(null);
     setEditingHabitId(null);
     setIsAddModalVisible(false);
-  };
-
-  const changeRemindersEnabled = (enabled: boolean) => {
-    setRemindersEnabled(enabled);
-    saveRemindersEnabled(enabled);
-    if (!enabled) {
-      Promise.all(habits.map(habit => cancelReminder(habit.id))).catch(
-        () => undefined,
-      );
-    }
   };
 
   const changeThemeMode = (mode: ThemeMode) => {
@@ -210,42 +220,15 @@ function AppContent(): React.JSX.Element {
     }
   }, [habits, isHydrated]);
 
-  useEffect(() => {
-    if (
-      !isHydrated ||
-      !remindersEnabled ||
-      !habits.some(habit => habit.reminderTime)
-    ) {
-      return;
-    }
-
-    let isMounted = true;
-    const syncReminders = async () => {
-      if ((await initialiseReminderNotifications()) && isMounted) {
-        await rescheduleReminders(habits);
-      }
-    };
-    syncReminders();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [habits, isHydrated, remindersEnabled]);
-
   const openAddHabit = () => {
     if (!isPremium && habits.length >= 5) {
-      selectMainTab('Settings');
-      Alert.alert(
-        'Free plan limit',
-        'Upgrade to add more than 5 active habits.',
-      );
+      setIsFreePlanLimitVisible(true);
       return;
     }
     setNewHabitName('');
     setNewHabitDetail('');
-    setNewHabitReminder('');
     setNewHabitRepeatDays([...WEEKDAYS]);
-    setNewHabitColor('#286B69');
+    setNewHabitColor('#0EA5E9');
     setNewHabitTimeOfDay(undefined);
     setNewHabitLocation('');
     setNewHabitDuration('');
@@ -254,12 +237,41 @@ function AppContent(): React.JSX.Element {
 
   const openPremium = async () => {
     setBillingMessage('');
-    setIsPremiumModalVisible(true);
+    if (REVENUECAT_API_KEY) {
+      setIsBillingBusy(true);
+      const result = await entitlementClient.presentPremiumPaywall();
+      setIsBillingBusy(false);
+      applyBillingResult(
+        result,
+        'Premium is temporarily unavailable. Try again later.',
+      );
+      if (result.status !== 'notConfigured' && result.status !== 'error') {
+        return;
+      }
+    }
+
     const offer = await entitlementClient.getPremiumOffer();
     setPremiumOffer(offer);
+    setIsPremiumModalVisible(true);
     if (!offer && REVENUECAT_API_KEY) {
       setBillingMessage('Premium is temporarily unavailable. Try again later.');
     }
+  };
+
+  const closePremium = () => {
+    setIsPremiumModalVisible(false);
+    if (!isPremium) {
+      setSelectedStatsHabitId(null);
+    }
+  };
+
+  const openHabitStats = (habit: Habit) => {
+    if (!isPremium) {
+      setIsStatsPremiumPromptVisible(true);
+      return;
+    }
+
+    setSelectedStatsHabitId(habit.id);
   };
 
   const purchasePremium = async () => {
@@ -268,14 +280,12 @@ function AppContent(): React.JSX.Element {
     }
     setBillingMessage('');
     setIsBillingBusy(true);
-    const purchased = await entitlementClient.purchasePremium(premiumOffer);
+    const result = await entitlementClient.purchasePremium(premiumOffer);
     setIsBillingBusy(false);
-    if (purchased) {
-      setIsPremium(true);
-      setIsPremiumModalVisible(false);
-      return;
-    }
-    setBillingMessage('Purchase was not completed. No changes were made.');
+    applyBillingResult(
+      result,
+      'Purchase was not completed. No changes were made.',
+    );
   };
 
   const restorePremium = async () => {
@@ -284,14 +294,23 @@ function AppContent(): React.JSX.Element {
     }
     setBillingMessage('');
     setIsBillingBusy(true);
-    const restored = await entitlementClient.restorePurchases();
+    const result = await entitlementClient.restorePurchases();
     setIsBillingBusy(false);
-    if (restored) {
-      setIsPremium(true);
-      setIsPremiumModalVisible(false);
+    applyBillingResult(result, 'No active Premium purchase was found.');
+  };
+
+  const managePremium = async () => {
+    if (isBillingBusy) {
       return;
     }
-    setBillingMessage('No active Premium purchase was found.');
+    setBillingMessage('');
+    setIsBillingBusy(true);
+    const result = await entitlementClient.showCustomerCenter();
+    setIsBillingBusy(false);
+    applyBillingResult(
+      result,
+      'Subscription management is temporarily unavailable.',
+    );
   };
 
   const toggleRepeatDay = (day: (typeof WEEKDAYS)[number]) => {
@@ -304,7 +323,6 @@ function AppContent(): React.JSX.Element {
 
   const addHabit = () => {
     const name = newHabitName.trim();
-    const reminderTime = newHabitReminder.trim();
     const durationText = newHabitDuration.trim();
     const durationMinutes = durationText ? Number(durationText) : undefined;
     if (!name) {
@@ -323,10 +341,6 @@ function AppContent(): React.JSX.Element {
       )
     ) {
       Alert.alert('Habit already exists', 'Choose a different habit name.');
-      return;
-    }
-    if (reminderTime && !isValidReminderTime(reminderTime)) {
-      Alert.alert('Check the reminder', 'Use a 24-hour time such as 08:00.');
       return;
     }
     if (
@@ -351,7 +365,6 @@ function AppContent(): React.JSX.Element {
     }
     setHabits(current => {
       const detail = newHabitDetail.trim() || 'Daily';
-      const savedReminderTime = reminderTime || undefined;
       if (editingHabitId !== null) {
         return current.map(habit =>
           habit.id === editingHabitId
@@ -359,7 +372,6 @@ function AppContent(): React.JSX.Element {
                 ...habit,
                 name,
                 detail,
-                reminderTime: savedReminderTime,
                 repeatDays: newHabitRepeatDays,
                 color: newHabitColor,
                 timeOfDay: newHabitTimeOfDay,
@@ -382,7 +394,6 @@ function AppContent(): React.JSX.Element {
           durationMinutes,
           completedDates: [],
           repeatDays: newHabitRepeatDays,
-          reminderTime: savedReminderTime,
         },
       ];
     });
@@ -394,7 +405,6 @@ function AppContent(): React.JSX.Element {
     setEditingHabitId(habit.id);
     setNewHabitName(habit.name);
     setNewHabitDetail(habit.detail);
-    setNewHabitReminder(habit.reminderTime ?? '');
     setNewHabitRepeatDays(habit.repeatDays);
     setNewHabitColor(habit.color);
     setNewHabitTimeOfDay(habit.timeOfDay);
@@ -414,7 +424,6 @@ function AppContent(): React.JSX.Element {
 
     const habit = deleteHabitCandidate;
     setDeleteHabitCandidate(null);
-    cancelReminder(habit.id);
     setHabits(current => current.filter(item => item.id !== habit.id));
   };
 
@@ -513,7 +522,7 @@ function AppContent(): React.JSX.Element {
                 {dateLabel}
               </Text>
               <Text style={[styles.title, isDarkTheme && styles.darkTitle]}>
-                Good morning, Carl
+                Good morning
               </Text>
             </View>
             <Pressable
@@ -529,7 +538,7 @@ function AppContent(): React.JSX.Element {
           showsVerticalScrollIndicator={false}
           style={styles.contentScroll}>
           {activeTab === 'Home' ? (
-            <>
+            <View style={styles.homeStack}>
               <HistoryCalendar
                 habits={habits}
                 actionColor={actionColor}
@@ -575,7 +584,7 @@ function AppContent(): React.JSX.Element {
                 onToggleHabitOnDate={toggleHabitOnDate}
                 selectedDate={historyDate}
               />
-            </>
+            </View>
           ) : activeTab === 'Manage' ? (
             <ManageHabitsScreen
               habits={habits}
@@ -591,7 +600,7 @@ function AppContent(): React.JSX.Element {
                 habits={habits}
                 actionColor={actionColor}
                 isDarkTheme={isDarkTheme}
-                onHabitPress={habit => setSelectedStatsHabitId(habit.id)}
+                onHabitPress={openHabitStats}
                 today={today}
               />
             ) : (
@@ -614,15 +623,14 @@ function AppContent(): React.JSX.Element {
               isPremium={isPremium}
               isPremiumModalVisible={isPremiumModalVisible}
               offer={premiumOffer}
-              onClosePremium={() => setIsPremiumModalVisible(false)}
+              onClosePremium={closePremium}
               onDeleteLocalData={deleteLocalData}
               onActionColorChange={changeActionColor}
-              onRemindersEnabledChange={changeRemindersEnabled}
               onThemeModeChange={changeThemeMode}
               onOpenPremium={openPremium}
               onPurchasePremium={purchasePremium}
               onRestorePremium={restorePremium}
-              remindersEnabled={remindersEnabled}
+              onManagePremium={managePremium}
               themeMode={themeMode}
             />
           ) : null}
@@ -655,7 +663,6 @@ function AppContent(): React.JSX.Element {
         onChangeDuration={setNewHabitDuration}
         onChangeLocation={setNewHabitLocation}
         onChangeName={setNewHabitName}
-        onChangeReminder={setNewHabitReminder}
         onChangeTimeOfDay={setNewHabitTimeOfDay}
         onClose={() => {
           setIsAddModalVisible(false);
@@ -663,7 +670,6 @@ function AppContent(): React.JSX.Element {
         }}
         onSave={addHabit}
         onToggleDay={toggleRepeatDay}
-        reminder={newHabitReminder}
         repeatDays={newHabitRepeatDays}
         selectedColor={newHabitColor}
         timeOfDay={newHabitTimeOfDay}
@@ -698,6 +704,44 @@ function AppContent(): React.JSX.Element {
         onConfirm={confirmDeleteHabit}
         visible={deleteHabitCandidate !== null}
       />
+      <FreePlanLimitModal
+        actionColor={actionColor}
+        isDarkTheme={isDarkTheme}
+        onClose={() => setIsFreePlanLimitVisible(false)}
+        onUpgrade={() => {
+          setIsFreePlanLimitVisible(false);
+          selectMainTab('Settings');
+        }}
+        visible={isFreePlanLimitVisible}
+      />
+      <FreePlanLimitModal
+        actionColor={actionColor}
+        isDarkTheme={isDarkTheme}
+        message="Unlock detailed habit stats with Premium."
+        onClose={() => setIsStatsPremiumPromptVisible(false)}
+        onUpgrade={() => {
+          setIsStatsPremiumPromptVisible(false);
+          selectMainTab('Settings');
+        }}
+        title="Premium stats"
+        visible={isStatsPremiumPromptVisible}
+      />
+      <PremiumScreen
+        actionColor={actionColor}
+        showPanel={false}
+        themeMode={themeMode}
+        apiKeyConfigured={Boolean(REVENUECAT_API_KEY)}
+        billingMessage={billingMessage}
+        isBillingBusy={isBillingBusy}
+        isPremium={isPremium}
+        isPremiumModalVisible={isPremiumModalVisible}
+        offer={premiumOffer}
+        onClosePremium={closePremium}
+        onOpenPremium={openPremium}
+        onPurchasePremium={purchasePremium}
+        onRestorePremium={restorePremium}
+        onManagePremium={managePremium}
+      />
     </SafeAreaView>
   );
 }
@@ -707,7 +751,7 @@ const colors = {
   ink: '#202A2A',
   muted: '#778080',
   line: '#E5DED3',
-  teal: '#286B69',
+  teal: '#31A39C',
   warm: '#F0E8DC',
 };
 
@@ -740,6 +784,7 @@ const styles = StyleSheet.create({
   container: {flex: 1, paddingHorizontal: 22, paddingTop: 20},
   contentScroll: {flex: 1},
   contentScrollContent: {flexGrow: 1, paddingBottom: 24},
+  homeStack: {alignSelf: 'stretch', width: '100%'},
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -765,8 +810,10 @@ const styles = StyleSheet.create({
   progressPanel: {
     backgroundColor: colors.warm,
     borderRadius: 6,
+    alignSelf: 'stretch',
+    marginTop: 24,
     padding: 18,
-    marginBottom: 30,
+    marginBottom: 24,
   },
   progressHeader: {
     flexDirection: 'row',

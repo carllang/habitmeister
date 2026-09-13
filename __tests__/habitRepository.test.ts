@@ -183,8 +183,8 @@ describe('habit completion history', () => {
     await expect(saveOnboardingCompleted()).resolves.toBeUndefined();
   });
 
-  it('defaults reminders to enabled and persists the preference', async () => {
-    await expect(loadRemindersEnabled()).resolves.toBe(true);
+  it('defaults reminders to disabled and persists the preference', async () => {
+    await expect(loadRemindersEnabled()).resolves.toBe(false);
     await saveRemindersEnabled(false);
     expect(mockSetItem).toHaveBeenCalledWith(
       '@habitmeister/reminders-enabled',

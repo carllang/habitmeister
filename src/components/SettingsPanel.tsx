@@ -14,17 +14,16 @@ type SettingsPanelProps = {
   isPremium: boolean;
   isPremiumModalVisible: boolean;
   offer: PremiumOffer | null;
-  remindersEnabled: boolean;
   themeMode: 'light' | 'dark';
   actionColor: ActionColor;
   onClosePremium: () => void;
   onDeleteLocalData: () => Promise<void>;
-  onRemindersEnabledChange: (enabled: boolean) => void;
   onThemeModeChange: (mode: 'light' | 'dark') => void;
   onActionColorChange: (color: ActionColor) => void;
   onOpenPremium: () => void;
   onPurchasePremium: () => void;
   onRestorePremium: () => void;
+  onManagePremium?: () => void;
 };
 
 export function SettingsPanel({
@@ -35,17 +34,16 @@ export function SettingsPanel({
   isPremium,
   isPremiumModalVisible,
   offer,
-  remindersEnabled,
   themeMode,
   actionColor,
   onClosePremium,
   onDeleteLocalData,
-  onRemindersEnabledChange,
   onThemeModeChange,
   onActionColorChange,
   onOpenPremium,
   onPurchasePremium,
   onRestorePremium,
+  onManagePremium,
 }: SettingsPanelProps): React.JSX.Element {
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
   const isDarkTheme = themeMode === 'dark';
@@ -113,22 +111,12 @@ export function SettingsPanel({
             onValueChange={enabled =>
               onThemeModeChange(enabled ? 'dark' : 'light')
             }
+            thumbColor={themeMode === 'dark' ? actionColor : '#FFFFFF'}
+            trackColor={{
+              false: isDarkTheme ? '#3B4543' : '#C9D2CE',
+              true: actionColor,
+            }}
             value={themeMode === 'dark'}
-          />
-        </View>
-        <View style={styles.settingRow}>
-          <View>
-            <Text style={[styles.settingTitle, {color: textColor}]}>
-              Reminders
-            </Text>
-            <Text style={[styles.settingDetail, {color: mutedColor}]}>
-              Allow scheduled habit notifications.
-            </Text>
-          </View>
-          <Switch
-            accessibilityLabel="Enable reminders"
-            onValueChange={onRemindersEnabledChange}
-            value={remindersEnabled}
           />
         </View>
         <View style={styles.settingRow}>
@@ -147,14 +135,22 @@ export function SettingsPanel({
         <Pressable
           accessibilityRole="button"
           onPress={() => setIsDeleteModalVisible(true)}
-          style={[styles.deleteButton, {borderColor: actionColor}]}>
-          <Text style={[styles.deleteButtonText, {color: actionColor}]}>
+          style={[
+            styles.deleteButton,
+            {borderColor: styles.deleteButtonText.color},
+          ]}>
+          <Text
+            style={[
+              styles.deleteButtonText,
+              {color: styles.deleteButtonText.color},
+            ]}>
             Delete local data
           </Text>
         </Pressable>
       </View>
       <PremiumScreen
         actionColor={actionColor}
+        showModal={false}
         themeMode={themeMode}
         apiKeyConfigured={apiKeyConfigured}
         billingMessage={billingMessage}
@@ -166,7 +162,9 @@ export function SettingsPanel({
         onOpenPremium={onOpenPremium}
         onPurchasePremium={onPurchasePremium}
         onRestorePremium={onRestorePremium}
+        onManagePremium={onManagePremium}
       />
+
       <DeleteLocalDataModal
         actionColor={actionColor}
         isDarkTheme={isDarkTheme}

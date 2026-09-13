@@ -121,7 +121,7 @@ export function HistoryCalendar({
 }
 
 const styles = StyleSheet.create({
-  screen: {flex: 1},
+  screen: {width: '100%'},
   navigationRow: {
     alignItems: 'center',
     flexDirection: 'row',

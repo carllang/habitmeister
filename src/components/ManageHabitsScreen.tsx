@@ -1,7 +1,8 @@
-import React from 'react';
+import React, {useState} from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
 
 import {Habit} from '../data/habitRepository';
+import {HabitActionsModal} from './HabitActionsModal';
 
 type ManageHabitsScreenProps = {
   actionColor: string;
@@ -20,6 +21,24 @@ export function ManageHabitsScreen({
   onEditHabit,
   onRemoveHabit,
 }: ManageHabitsScreenProps): React.JSX.Element {
+  const [selectedHabit, setSelectedHabit] = useState<Habit | null>(null);
+
+  const closeActions = () => setSelectedHabit(null);
+
+  const editSelectedHabit = () => {
+    if (selectedHabit) {
+      onEditHabit(selectedHabit);
+      closeActions();
+    }
+  };
+
+  const deleteSelectedHabit = () => {
+    if (selectedHabit) {
+      onRemoveHabit(selectedHabit);
+      closeActions();
+    }
+  };
+
   return (
     <View style={styles.screen}>
       <View style={styles.headerRow}>
@@ -61,24 +80,13 @@ export function ManageHabitsScreen({
                 </Text>
               ) : null}
             </View>
-            <View style={styles.actions}>
-              <Pressable
-                accessibilityLabel={`Edit ${habit.name}`}
-                accessibilityRole="button"
-                onPress={() => onEditHabit(habit)}
-                style={styles.actionButton}>
-                <Text style={[styles.actionText, {color: actionColor}]}>
-                  Edit
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityLabel={`Delete ${habit.name}`}
-                accessibilityRole="button"
-                onPress={() => onRemoveHabit(habit)}
-                style={styles.actionButton}>
-                <Text style={styles.deleteText}>Delete</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              accessibilityLabel={`Actions for ${habit.name}`}
+              accessibilityRole="button"
+              onPress={() => setSelectedHabit(habit)}
+              style={styles.menuButton}>
+              <Text style={[styles.menuIcon, {color: actionColor}]}>⋮</Text>
+            </Pressable>
           </View>
         ))}
       </View>
@@ -94,6 +102,15 @@ export function ManageHabitsScreen({
           + Add a habit
         </Text>
       </Pressable>
+      <HabitActionsModal
+        actionColor={actionColor}
+        habitName={selectedHabit?.name ?? ''}
+        isDarkTheme={isDarkTheme}
+        onClose={closeActions}
+        onDelete={deleteSelectedHabit}
+        onEdit={editSelectedHabit}
+        visible={selectedHabit !== null}
+      />
     </View>
   );
 }
@@ -139,10 +156,14 @@ const styles = StyleSheet.create({
   name: {color: '#202A2A', fontSize: 16, fontWeight: '600'},
   detail: {color: '#778080', fontSize: 12, marginTop: 5},
   location: {color: '#286B69', fontSize: 11, marginTop: 3},
-  actions: {alignItems: 'flex-end', marginLeft: 8},
-  actionButton: {paddingVertical: 5, paddingHorizontal: 4},
-  actionText: {color: '#286B69', fontSize: 12, fontWeight: '700'},
-  deleteText: {color: '#A34B45', fontSize: 12, fontWeight: '700'},
+  menuButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  menuIcon: {fontSize: 20, fontWeight: '700'},
   addButton: {
     alignItems: 'center',
     borderColor: '#286B69',
